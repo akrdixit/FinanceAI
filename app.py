@@ -1,11 +1,12 @@
-import pandas as pd
 import numpy as np
 
 from datetime import datetime
 import time
-from utils import generate_candlestick_chart, generate_rsi_chart
+from utils import stocks_with_positive_and_negative_sentiment,generate
 import streamlit as st
 import pandas as pd
+import pandas_ta as ta
+
 import os
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 from langchain_openai import OpenAI
@@ -35,7 +36,7 @@ st.sidebar.title('DataHack App')
 mapping = {'dashboard': '📈 Dashboard',
            'chat': '💬 Chat'}
 
-col = st.columns((6, 6.5), gap='large')
+col = st.columns((6, 6), gap='large')
 
 selected_tab = None
 selected_tab = st.sidebar.radio(label='Go to', options=("dashboard", "chat"), format_func=lambda x: mapping[x],
@@ -52,23 +53,34 @@ st.markdown("""
 if selected_tab == 'dashboard':
     with st.container():
         with col[0]:
-            start_date = st.date_input('Start date', datetime(2024, 1, 1))
-            end_date = st.date_input('End date', datetime(2024, 1, 31))
+            start_date = st.date_input('Start date', datetime(2024, 2, 1))
+        with col[1]:
+            end_date = st.date_input('End date', datetime(2024, 2, 29))
 
         # stock = st.sidebar.text_input('Enter a stock name', 'AAPL')
 
         start_timestamp = str(int(time.mktime(start_date.timetuple())))
         end_timestamp = str(int(time.mktime(end_date.timetuple())))
-        with col[1]:
-            chart_type = st.radio("Select Chart Type", ("Candlestick Chart", "RSI Chart"))
-        original_url = f"https://query1.finance.yahoo.com/v7/finance/download/%5ENSEI?period1={start_timestamp}&period2={end_timestamp}&interval=1d&events=history&includeAdjustedClose=true"
-        data = pd.read_csv(original_url)
-        data.set_index('Date', inplace=True)
 
-        if chart_type == 'Candlestick Chart':
-            st.plotly_chart(generate_candlestick_chart(data))
-        else:
-            st.plotly_chart(generate_rsi_chart(data))
+        original_url = "https://query1.finance.yahoo.com/v7/finance/download/%5ENSEI?period1=" + start_timestamp + "&period2=" + end_timestamp + "&interval=1d&events=history&includeAdjustedClose=true"
+        df_nifty_data = pd.read_csv(original_url)
+        df_nifty_data.columns = [cl for cl in df_nifty_data.columns]
+        stock_data = df_nifty_data.copy()
+        df_agg_sentiment = pd.read_csv('data/agrregated_sentiment.csv')
+        df_agg_sentiment.rename(columns={"start_date": "Date", "mean": "Sentiment"}, inplace=True)
+        df_agg_sentiment = df_agg_sentiment[['Date', 'Sentiment']]
+
+        # Calculate technical indicators
+        # stock_data.ta.atr(length=14, append=True)
+        stock_data.ta.rsi(length=14, append=True)
+        stock_data.ta.supertrend(append=True, atr_length=7, multiplier=3)
+        stock_data['SUPERT_7_3.0'].fillna(method='ffill', inplace=True)
+        stock_data = stock_data[20:]
+        stock_data['signal_st'] = stock_data.apply(lambda x: "buy" if x['Close'] > x['SUPERT_7_3.0'] else "sell",
+                                                   axis=1)
+        stock_data = pd.merge(stock_data, df_agg_sentiment, on='Date', how='left')
+        stock_data = stock_data[stock_data['Date'] <= stock_data[~stock_data['Sentiment'].isnull()]['Date'].max()]
+        st.plotly_chart(generate(stock_data))
 
     with st.container():
         # positive sentiment table
@@ -161,8 +173,6 @@ if selected_tab == 'chat':
             # Add assistant response to chat history
             st.session_state.messages.append({"role": "assistant", "content": response})
 
-        # print("ending",run_time_json['fullfilment'])
-        # print(pd.DataFrame(st.session_state.messages))
 
 
     if __name__ == "__main__":
