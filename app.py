@@ -107,7 +107,7 @@ def generate(stock_data):
                       width=1000)  # Set the width of the figure
     return fig
     
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "*************************"
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 model = OpenAI()
